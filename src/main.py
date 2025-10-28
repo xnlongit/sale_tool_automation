@@ -22,6 +22,7 @@ from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
@@ -48,37 +49,33 @@ class BrowserAutomation:
         self.is_logged_in = False
 
     def setup_driver(self):
-        """
-        Thiết lập Chrome WebDriver với các tùy chọn cần thiết
-        """
         try:
             chrome_options = Options()
-
-            # Cấu hình Chrome options
             chrome_options.add_argument("--lang=en-US")
-            chrome_options.add_argument("--disable-encryption")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
+            chrome_options.add_experimental_option("useAutomationExtension", False)
+            chrome_options.add_experimental_option("detach", True)  # Giữ Chrome mở
 
-            # Chế độ headless
+            # Nếu bạn tick Headless thì dùng headless mới
             if self.headless:
-                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--headless=new")
 
-            # Đường dẫn Chrome nếu được cung cấp
+            # Nếu có chỉ định đường dẫn chrome.exe trong GUI
             if self.chrome_path and os.path.exists(self.chrome_path):
                 chrome_options.binary_location = self.chrome_path
 
-            # Khởi tạo driver
-            self.driver = webdriver.Chrome(options=chrome_options)
+            # Gọi đúng driver bạn vừa cài (đã có trong PATH)
+            service = Service()  # Không cần chỉ rõ đường dẫn nữa
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
-            # Thực thi script để ẩn automation
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
+            # Ẩn dấu hiệu automation
+            self.driver.execute_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
             return True
-
         except Exception as e:
-            print(f"Lỗi khởi tạo browser: {str(e)}")
+            print("Lỗi khởi tạo browser:", str(e))
             return False
 
     def login(self, email, password):
