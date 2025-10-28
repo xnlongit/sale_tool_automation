@@ -21,12 +21,17 @@ import random
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException, \
+    UnexpectedAlertPresentException
+from selenium.webdriver.common.alert import Alert
 import queue
+import sys
+import shutil
 
 
 class BrowserAutomation:
@@ -48,7 +53,238 @@ class BrowserAutomation:
         self.chrome_path = chrome_path
         self.is_logged_in = False
 
-    def setup_driver(self):
+    def close_popups(self, verbose=False):
+        """
+        Đóng các popup và overlay có thể che các element cần click
+
+        Args:
+            verbose (bool): Nếu True, in log chi tiết
+        """
+        if verbose:
+            print("[close_popups] Bắt đầu đóng popups...")
+
+        try:
+            # Kiểm tra và đóng popup WorldShopping với ID: zigzag-modal
+            popup_found = False
+            try:
+                # Thử tìm popup với ID zigzag-modal (popup chính)
+                if verbose:
+                    print("[close_popups] Đang tìm popup zigzag-modal...")
+                popup = self.driver.find_element(By.ID, 'zigzag-modal')
+                if popup.is_displayed():
+                    if verbose:
+                        print("[close_popups] ✓ Tìm thấy popup zigzag-modal đang hiển thị")
+                    popup_found = True
+                else:
+                    if verbose:
+                        print("[close_popups] Tìm thấy popup zigzag-modal nhưng không hiển thị")
+            except NoSuchElementException:
+                if verbose:
+                    print("[close_popups] Không tìm thấy popup zigzag-modal")
+            except Exception as e:
+                if verbose:
+                    print(f"[close_popups] Lỗi khi tìm popup zigzag-modal: {str(e)}")
+
+            # Thử tìm nút close với nhiều selector khác nhau nếu tìm thấy popup
+            if popup_found:
+                if verbose:
+                    print("[close_popups] Bắt đầu đóng popup...")
+
+                try:
+                    close_selectors = [
+                        'button#zigzag-test__modal-close',  # Nút close chính
+                        '#zigzag-modal button',
+                        '#zigzag-modal button.close',
+                        '#zigzag-modal [alt="Close"]',
+                        '#zigzag-modal .close',
+                        '#zigzag-modal img[alt="Close"]',
+                        'button[type="button"] img[alt="Close"]',
+                        '#zigzag-worldshopping-checkout button.close',
+                        '#zigzag-worldshopping-checkout .close-btn',
+                        '#zigzag-worldshopping-checkout .modal-close'
+                    ]
+
+                    for selector in close_selectors:
+                        try:
+                            close_btn = self.driver.find_element(By.CSS_SELECTOR, selector)
+                            if close_btn.is_displayed():
+                                if verbose:
+                                    print(f"[close_popups] Tìm thấy nút close với selector: {selector}")
+                                self.driver.execute_script("arguments[0].click();", close_btn)
+                                time.sleep(0.3)
+                                if verbose:
+                                    print("[close_popups] ✓ Đã click vào nút close")
+                                break
+                        except:
+                            continue
+
+                    # Nếu không tìm thấy nút close, thử Escape key
+                    try:
+                        if verbose:
+                            print("[close_popups] Thử nhấn phím ESC...")
+                        self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
+                        time.sleep(0.3)
+                        if verbose:
+                            print("[close_popups] ✓ Đã nhấn ESC")
+                    except Exception as e:
+                        if verbose:
+                            print(f"[close_popups] Không thể nhấn ESC: {str(e)}")
+                except Exception as e:
+                    if verbose:
+                        print(f"[close_popups] Lỗi khi tìm nút close: {str(e)}")
+                    # Click ra ngoài bằng cách click vào body
+                    try:
+                        body = self.driver.find_element(By.TAG_NAME, 'body')
+                        self.driver.execute_script("arguments[0].click();", body)
+                        time.sleep(0.3)
+                        if verbose:
+                            print("[close_popups] ✓ Đã click ra ngoài popup")
+                    except Exception as e2:
+                        if verbose:
+                            print(f"[close_popups] Không thể click ra ngoài: {str(e2)}")
+
+                # Ẩn popup bằng CSS - thử nhiều cách
+                try:
+                    if verbose:
+                        print("[close_popups] Thử ẩn popup bằng JavaScript...")
+                    scripts = [
+                        "document.getElementById('zigzag-modal').style.display='none';",
+                        "var popup = document.getElementById('zigzag-modal'); if(popup) popup.style.display='none';",
+                        "document.getElementById('zigzag-modal').remove();",
+                        "document.getElementById('zigzag-worldshopping-checkout').style.display='none';",
+                        "document.getElementById('zigzag-worldshopping-checkout').remove();"
+                    ]
+                    for script in scripts:
+                        try:
+                            self.driver.execute_script(script)
+                            time.sleep(0.2)
+                            if verbose:
+                                print(f"[close_popups] ✓ Đã chạy script: {script}")
+                        except:
+                            continue
+                except Exception as e:
+                    if verbose:
+                        print(f"[close_popups] Lỗi khi ẩn popup bằng JS: {str(e)}")
+
+            # Kiểm tra popup WorldShopping với nhiều selector khác nhau (fallback)
+            if not popup_found:
+                try:
+                    worldshopping_popups = [
+                        (By.ID, 'zigzag-modal'),  # Popup chính
+                        (By.ID, 'zigzag-worldshopping-checkout'),
+                        (By.CLASS_NAME, 'worldshopping-popup'),
+                        (By.CSS_SELECTOR, '[class*="worldshopping"]'),
+                        (By.CSS_SELECTOR, '[id*="zigzag"]'),
+                        (By.CSS_SELECTOR, '[class*="NoticeV2"]'),
+                        (By.CSS_SELECTOR, '.modal[class*="world"]')
+                    ]
+
+                    for locator_type, locator_value in worldshopping_popups:
+                        try:
+                            popup = self.driver.find_element(locator_type, locator_value)
+                            if popup.is_displayed():
+                                # Thử đóng popup
+                                try:
+                                    # Tìm nút X trong popup
+                                    close_btn = popup.find_element(By.CSS_SELECTOR,
+                                                                   'button, .close, [aria-label*="close" i]')
+                                    self.driver.execute_script("arguments[0].click();", close_btn)
+                                    time.sleep(0.3)
+                                except:
+                                    # Ẩn popup
+                                    self.driver.execute_script("arguments[0].style.display='none';", popup)
+                                    time.sleep(0.3)
+                                break
+                        except:
+                            continue
+                except:
+                    pass
+
+            # Kiểm tra các popup/overlay khác có thể che element
+            try:
+                overlay_selectors = [
+                    '.modal-backdrop',
+                    '.overlay',
+                    '.popup-overlay',
+                    '[style*="position: fixed"]',
+                    '[style*="z-index"]'
+                ]
+
+                for selector in overlay_selectors:
+                    try:
+                        overlays = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                        for overlay in overlays:
+                            try:
+                                overlay_id = overlay.get_attribute('id') or ''
+                                if overlay.is_displayed() and 'zigzag' not in overlay_id:
+                                    self.driver.execute_script("arguments[0].style.display='none';", overlay)
+                                    time.sleep(0.2)
+                            except:
+                                pass
+                    except:
+                        pass
+            except:
+                pass
+
+        except:
+            pass
+
+    @staticmethod
+    def find_chrome_executable():
+        """
+        Tìm đường dẫn Chrome executable trên Windows
+
+        Returns:
+            str: Đường dẫn đến chrome.exe hoặc None nếu không tìm thấy
+        """
+        # Danh sách các đường dẫn có thể có
+        possible_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+        ]
+
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
+
+        return None
+
+    @staticmethod
+    def find_chromedriver_executable():
+        """
+        Tìm đường dẫn ChromeDriver executable
+
+        Returns:
+            str: Đường dẫn đến chromedriver.exe hoặc None nếu không tìm thấy
+        """
+        # Nếu đang chạy trong môi trường PyInstaller
+        if getattr(sys, 'frozen', False):
+            # Lấy thư mục chứa executable
+            base_path = os.path.dirname(sys.executable)
+            chromedriver_path = os.path.join(base_path, 'chromedriver.exe')
+            if os.path.exists(chromedriver_path):
+                return chromedriver_path
+
+        # Tìm trong PATH
+        chromedriver = shutil.which('chromedriver.exe')
+        if chromedriver:
+            return chromedriver
+
+        # Tìm trong các thư mục thông thường
+        possible_paths = [
+            r"C:\Program Files\ChromeDriver\chromedriver.exe",
+            r"C:\chromedriver\chromedriver.exe",
+            os.path.join(os.path.dirname(__file__), 'chromedriver.exe'),
+        ]
+
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
+
+        return None
+
+    def setup_driver(self, verbose=True):
         try:
             chrome_options = Options()
             chrome_options.add_argument("--lang=en-US")
@@ -61,12 +297,30 @@ class BrowserAutomation:
             if self.headless:
                 chrome_options.add_argument("--headless=new")
 
-            # Nếu có chỉ định đường dẫn chrome.exe trong GUI
-            if self.chrome_path and os.path.exists(self.chrome_path):
-                chrome_options.binary_location = self.chrome_path
+            # Tìm đường dẫn Chrome
+            chrome_executable = self.chrome_path if (
+                        self.chrome_path and os.path.exists(self.chrome_path)) else self.find_chrome_executable()
 
-            # Gọi đúng driver bạn vừa cài (đã có trong PATH)
-            service = Service()  # Không cần chỉ rõ đường dẫn nữa
+            if chrome_executable:
+                chrome_options.binary_location = chrome_executable
+                if verbose:
+                    print(f"Sử dụng Chrome tại: {chrome_executable}")
+            elif verbose:
+                print("Không tìm thấy Chrome, sẽ sử dụng Chrome mặc định trong PATH")
+
+            # Tìm đường dẫn ChromeDriver
+            chromedriver_path = self.find_chromedriver_executable()
+
+            if chromedriver_path:
+                if verbose:
+                    print(f"Sử dụng ChromeDriver tại: {chromedriver_path}")
+                service = Service(chromedriver_path)
+            else:
+                if verbose:
+                    print("Không tìm thấy ChromeDriver, sử dụng mặc định từ selenium")
+                service = Service()
+
+            # Khởi tạo WebDriver
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
             # Ẩn dấu hiệu automation
@@ -75,8 +329,32 @@ class BrowserAutomation:
             )
             return True
         except Exception as e:
-            print("Lỗi khởi tạo browser:", str(e))
-            return False
+            error_msg = f"Lỗi khởi tạo browser: {str(e)}"
+            if verbose:
+                print(error_msg)
+                print("Đang thử sử dụng Chrome và ChromeDriver mặc định...")
+
+            try:
+                # Thử với cài đặt mặc định
+                chrome_options = Options()
+                chrome_options.add_argument("--lang=en-US")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+
+                if self.headless:
+                    chrome_options.add_argument("--headless=new")
+
+                self.driver = webdriver.Chrome(options=chrome_options)
+                self.driver.execute_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
+                if verbose:
+                    print("Khởi tạo browser thành công với cài đặt mặc định")
+                return True
+            except Exception as e2:
+                if verbose:
+                    print(f"Lỗi khởi tạo browser với cài đặt mặc định: {str(e2)}")
+                return False
 
     def login(self, email, password):
         """
@@ -89,59 +367,199 @@ class BrowserAutomation:
         Returns:
             bool: True nếu đăng nhập thành công, False nếu thất bại
         """
+        print(f"[login] Bắt đầu đăng nhập với email: {email}")
+
         try:
             if not self.driver:
+                print("[login] Driver chưa khởi tạo, đang thiết lập...")
                 if not self.setup_driver():
+                    print("[login] ✗ Không thể khởi tạo driver")
                     return False
+                print("[login] ✓ Driver đã được khởi tạo")
 
             # Truy cập trang chủ
+            print("[login] Đang truy cập trang chủ...")
             self.driver.get("https://www.er-sports.com/index.html")
             time.sleep(2)
+            print("[login] ✓ Đã tải trang chủ")
 
-            # Tìm và click vào link đăng nhập
-            login_link = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, '#header ul li a[href="javascript:ssl_login(\'login\')"]'))
-            )
-            login_link.click()
+            # Đóng popup WorldShopping nếu có (xuất hiện lần đầu vào website)
+            print("[login] Đang đóng popup lần 1...")
+            self.close_popups(verbose=True)
             time.sleep(1)
 
-            # Điền thông tin đăng nhập
-            email_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'table.loginform input[name="id"]'))
-            )
-            email_input.clear()
-            email_input.send_keys(email)
+            # Gọi trực tiếp hàm JavaScript để mở form login
+            print("[login] Đang gọi hàm ssl_login('login') để mở form...")
+            try:
+                self.driver.execute_script("ssl_login('login');")
+                print("[login] ✓ Đã gọi ssl_login('login')")
+            except Exception as e:
+                print(f"[login] Không thể gọi ssl_login trực tiếp: {str(e)}")
+                # Fallback: click link
+                print("[login] Thử click link đăng nhập...")
+                login_link = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, '#header ul li a[href="javascript:ssl_login(\'login\')"]'))
+                )
+                login_link.click()
+                print("[login] ✓ Đã click vào link đăng nhập")
 
+            # Đợi form login xuất hiện
+            print("[login] Đang đợi form login xuất hiện...")
+
+            # Thử nhiều cách để đợi form xuất hiện
+            form_loaded = False
+            try:
+                # Đợi cho đến khi có input với name="id"
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[name="id"]'))
+                )
+                form_loaded = True
+                print("[login] ✓ Form login đã xuất hiện")
+            except TimeoutException:
+                print("[login] ✗ Timeout đợi form xuất hiện")
+
+            if not form_loaded:
+                time.sleep(2)  # Thêm delay nếu form chưa xuất hiện
+
+            # Đóng popup WorldShopping nếu có (thử nhiều lần vì popup có thể tự hiện lại)
+            print("[login] Đang đóng popup nhiều lần...")
+            for i in range(5):  # Tăng số lần thử
+                print(f"[login] Đóng popup lần {i + 1}/5...")
+                self.close_popups(verbose=True)
+                time.sleep(0.5)
+
+            # Điền thông tin đăng nhập - thử nhiều selector
+            print("[login] Đang tìm ô nhập email...")
+
+            # Thử nhiều selector khác nhau cho email input
+            email_input = None
+            email_selectors = [
+                'table.loginform input[name="id"]',
+                'input[name="id"]',
+                'input[type="text"]',
+                'input[type="email"]',
+                'table.loginform input[type="text"]'
+            ]
+
+            for selector in email_selectors:
+                try:
+                    print(f"[login] Thử tìm email với selector: {selector}")
+                    email_input = WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                    )
+                    print(f"[login] ✓ Tìm thấy ô email với selector: {selector}")
+                    break
+                except TimeoutException:
+                    continue
+
+            if not email_input:
+                print("[login] ✗ Không tìm thấy ô email với bất kỳ selector nào")
+                print("[login] Đang chụp màn hình và lưu HTML để debug...")
+                try:
+                    self.driver.save_screenshot('debug_login_not_found.png')
+                    print("[login] Đã lưu screenshot: debug_login_not_found.png")
+                except Exception as e:
+                    print(f"[login] Không thể chụp màn hình: {str(e)}")
+                try:
+                    with open('debug_login_page.html', 'w', encoding='utf-8') as f:
+                        f.write(self.driver.page_source)
+                    print("[login] Đã lưu HTML: debug_login_page.html")
+                except Exception as e:
+                    print(f"[login] Không thể lưu HTML: {str(e)}")
+                raise Exception("Không tìm thấy ô nhập email")
+
+            # Scroll đến element
+            print("[login] Đang scroll đến ô email...")
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", email_input)
+            time.sleep(0.5)
+
+            # Đóng popup lại một lần nữa sau khi scroll
+            print("[login] Đóng popup sau khi scroll...")
+            self.close_popups(verbose=True)
+            time.sleep(0.5)
+
+            # Thử điền bằng JavaScript để tránh bị che
+            print("[login] Đang điền email bằng JavaScript...")
+            try:
+                self.driver.execute_script(
+                    "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input'));",
+                    email_input, email)
+                print("[login] ✓ Đã điền email bằng JavaScript")
+            except Exception as e:
+                print(f"[login] Lỗi JS, thử clear thông thường: {str(e)}")
+                email_input.clear()
+                email_input.send_keys(email)
+                print("[login] ✓ Đã điền email bằng cách thông thường")
+
+            # Điền password
+            print("[login] Đang điền password...")
             password_input = self.driver.find_element(By.CSS_SELECTOR, 'table.loginform input[name="passwd"]')
-            password_input.clear()
-            password_input.send_keys(password)
+
+            # Scroll đến password field
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", password_input)
+            time.sleep(0.5)
+
+            # Thử điền bằng JavaScript
+            try:
+                self.driver.execute_script(
+                    "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input'));",
+                    password_input, password)
+                print("[login] ✓ Đã điền password bằng JavaScript")
+            except Exception as e:
+                print(f"[login] Lỗi JS, thử cách thông thường: {str(e)}")
+                password_input.clear()
+                password_input.send_keys(password)
+                print("[login] ✓ Đã điền password bằng cách thông thường")
+
+            # Đóng popup lại một lần nữa trước khi submit (popup có thể xuất hiện lại)
+            print("[login] Đóng popup lần cuối trước khi submit...")
+            self.close_popups(verbose=True)
+            time.sleep(0.5)
 
             # Click nút đăng nhập
+            print("[login] Đang tìm nút đăng nhập...")
             login_button = self.driver.find_element(By.CSS_SELECTOR,
                                                     'div.btn input[onclick="javascript:login_check();"]')
-            login_button.click()
+            print("[login] ✓ Tìm thấy nút đăng nhập, đang click...")
+
+            # Sử dụng JavaScript click để tránh popup che button
+            try:
+                self.driver.execute_script("arguments[0].click();", login_button)
+                print("[login] ✓ Đã click nút đăng nhập bằng JavaScript")
+            except Exception as e:
+                print(f"[login] Không thể click bằng JS: {str(e)}, thử click thường...")
+                login_button.click()
+                print("[login] ✓ Đã click nút đăng nhập bằng click thường")
+
             time.sleep(3)
+            print("[login] Đang kiểm tra kết quả đăng nhập...")
 
             # Kiểm tra đăng nhập thành công
             try:
                 # Kiểm tra xem có xuất hiện link đăng xuất không
                 logout_link = self.driver.find_element(By.CSS_SELECTOR, 'a[href*="logout"]')
+                print("[login] ✓✓✓ Đăng nhập THÀNH CÔNG!")
                 self.is_logged_in = True
                 return True
             except NoSuchElementException:
+                print("[login] ✗ Không tìm thấy link logout")
                 # Kiểm tra xem có thông báo lỗi không
                 try:
                     error_message = self.driver.find_element(By.CSS_SELECTOR, '.error, .alert, .warning')
-                    print(f"Lỗi đăng nhập: {error_message.text}")
+                    print(f"[login] ✗ Lỗi đăng nhập: {error_message.text}")
                 except NoSuchElementException:
-                    print("Không thể xác định trạng thái đăng nhập")
+                    print("[login] ✗ Không thể xác định trạng thái đăng nhập")
+                print("[login] ✗✗✗ Đăng nhập THẤT BẠI!")
                 return False
 
-        except TimeoutException:
-            print("Timeout khi đăng nhập")
+        except TimeoutException as e:
+            print(f"[login] ✗✗✗ TIMEOUT khi đăng nhập: {str(e)}")
             return False
         except Exception as e:
-            print(f"Lỗi đăng nhập: {str(e)}")
+            print(f"[login] ✗✗✗ LỖI đăng nhập: {str(e)}")
+            import traceback
+            print(f"[login] Traceback: {traceback.format_exc()}")
             return False
 
     def purchase_product(self, product_url, product_id):
@@ -171,11 +589,59 @@ class BrowserAutomation:
             self.driver.get("https://www.er-sports.com/shop/basket.html")
             time.sleep(2)
 
+            # Đóng các popup trước khi thao tác
+            self.close_popups()
+            time.sleep(0.5)
+
             try:
+                # Thử tìm và click nút clear
                 clear_button = self.driver.find_element(By.CSS_SELECTOR,
                                                         '.btn-wrap-back a[href="JavaScript:basket_clear()"]')
-                clear_button.click()
-                time.sleep(2)
+
+                # Sử dụng JavaScript click để tránh element intercepted
+                try:
+                    self.driver.execute_script("arguments[0].click();", clear_button)
+                    time.sleep(1)
+
+                    # Xử lý alert nếu có
+                    try:
+                        WebDriverWait(self.driver, 5).until(EC.alert_is_present())
+                        alert = self.driver.switch_to.alert
+                        alert_text = alert.text
+                        print(f"[purchase] Alert xuất hiện: {alert_text}")
+                        alert.accept()  # Accept alert để xóa giỏ hàng
+                        print("[purchase] ✓ Đã accept alert")
+                        time.sleep(1)
+                    except TimeoutException:
+                        # Không có alert, bình thường
+                        print("[purchase] Không có alert")
+                        pass
+                    except Exception as e:
+                        print(f"[purchase] Lỗi xử lý alert: {str(e)}")
+                        pass
+
+                except:
+                    # Fallback: click bình thường
+                    clear_button.click()
+                    time.sleep(1)
+
+                    # Xử lý alert nếu có
+                    try:
+                        WebDriverWait(self.driver, 5).until(EC.alert_is_present())
+                        alert = self.driver.switch_to.alert
+                        alert_text = alert.text
+                        print(f"[purchase] Alert xuất hiện: {alert_text}")
+                        alert.accept()  # Accept alert để xóa giỏ hàng
+                        print("[purchase] ✓ Đã accept alert")
+                        time.sleep(1)
+                    except TimeoutException:
+                        # Không có alert, bình thường
+                        print("[purchase] Không có alert")
+                        pass
+                    except Exception as e:
+                        print(f"[purchase] Lỗi xử lý alert: {str(e)}")
+                        pass
+
             except NoSuchElementException:
                 pass  # Giỏ hàng có thể đã trống
 
@@ -223,8 +689,15 @@ class BrowserAutomation:
                 add_to_cart_button = WebDriverWait(self.driver, 10).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, 'a[href="javascript:basket_add(\'detail\')"]'))
                 )
-                add_to_cart_button.click()
-                time.sleep(2)
+
+                # Sử dụng JavaScript click để tránh bị intercept
+                try:
+                    self.driver.execute_script("arguments[0].click();", add_to_cart_button)
+                    time.sleep(2)
+                except:
+                    add_to_cart_button.click()
+                    time.sleep(2)
+
             except TimeoutException:
                 result['error'] = "Không thể thêm vào giỏ hàng"
                 return result
@@ -236,17 +709,27 @@ class BrowserAutomation:
             # Submit đơn hàng
             try:
                 submit_button = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'input[onclick="javascript:order_submit()"]'))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[onclick="javascript:order_submit()"]'))
                 )
-                submit_button.click()
-                time.sleep(2)
+
+                # Sử dụng JavaScript click để tránh bị intercept
+                try:
+                    self.driver.execute_script("arguments[0].click();", submit_button)
+                    time.sleep(2)
+                except:
+                    submit_button.click()
+                    time.sleep(2)
 
                 # Submit lần thứ 2 nếu cần
                 try:
                     submit_button2 = self.driver.find_element(By.CSS_SELECTOR,
                                                               'input[onclick="javascript:order_submit()"]')
-                    submit_button2.click()
-                    time.sleep(2)
+                    try:
+                        self.driver.execute_script("arguments[0].click();", submit_button2)
+                        time.sleep(2)
+                    except:
+                        submit_button2.click()
+                        time.sleep(2)
                 except NoSuchElementException:
                     pass
 
@@ -458,8 +941,14 @@ class ERSportsAutomationGUI:
         # Tạo giao diện
         self.create_widgets()
 
+        # Load cấu hình đã lưu
+        self.load_settings()
+
         # Bắt đầu kiểm tra log queue
         self.check_log_queue()
+
+        # Lưu khi đóng app
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_logging(self):
         """
@@ -825,6 +1314,20 @@ class ERSportsAutomationGUI:
         ttk.Radiobutton(vpn_settings, text="Ngẫu nhiên (Random)", variable=self.openvpn_mode_var,
                         value="random").pack(anchor=tk.W)
 
+        # Nút lưu cấu hình thủ công
+        ttk.Separator(settings_frame, orient='horizontal').pack(fill=tk.X, padx=5, pady=10)
+        manual_save_frame = ttk.Frame(settings_frame)
+        manual_save_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Button(manual_save_frame, text="💾 Lưu cấu hình thủ công",
+                   command=lambda: (
+                   self.save_settings(), self.log_message("Đã lưu cấu hình thủ công", "SUCCESS"))).pack(side=tk.LEFT,
+                                                                                                        padx=5)
+
+        ttk.Button(manual_save_frame, text="🔄 Load lại cấu hình",
+                   command=lambda: (self.load_settings(), self.log_message("Đã load lại cấu hình", "INFO"))).pack(
+            side=tk.LEFT, padx=5)
+
     def add_account(self):
         """
         Thêm tài khoản mới vào danh sách
@@ -859,6 +1362,10 @@ class ERSportsAutomationGUI:
 
         self.log_message(f"Đã thêm tài khoản: {email}", "INFO")
 
+        # Auto-save nếu bật
+        if self.auto_save_var.get():
+            self.save_settings()
+
     def remove_account(self):
         """
         Xóa tài khoản được chọn
@@ -873,6 +1380,10 @@ class ERSportsAutomationGUI:
         self.account_tree.delete(item)
         self.log_message(f"Đã xóa tài khoản: {email}", "INFO")
 
+        # Auto-save nếu bật
+        if self.auto_save_var.get():
+            self.save_settings()
+
     def clear_accounts(self):
         """
         Xóa tất cả tài khoản
@@ -880,6 +1391,10 @@ class ERSportsAutomationGUI:
         if messagebox.askyesno("Xác nhận", "Bạn có chắc muốn xóa tất cả tài khoản?"):
             self.account_tree.delete(*self.account_tree.get_children())
             self.log_message("Đã xóa tất cả tài khoản", "INFO")
+
+            # Auto-save nếu bật
+            if self.auto_save_var.get():
+                self.save_settings()
 
     def add_product(self):
         """
@@ -917,6 +1432,10 @@ class ERSportsAutomationGUI:
 
         self.log_message(f"Đã thêm sản phẩm: {name or product_id}", "INFO")
 
+        # Auto-save nếu bật
+        if self.auto_save_var.get():
+            self.save_settings()
+
     def remove_product(self):
         """
         Xóa sản phẩm được chọn
@@ -931,6 +1450,10 @@ class ERSportsAutomationGUI:
         self.product_tree.delete(item)
         self.log_message(f"Đã xóa sản phẩm: {product_id}", "INFO")
 
+        # Auto-save nếu bật
+        if self.auto_save_var.get():
+            self.save_settings()
+
     def clear_products(self):
         """
         Xóa tất cả sản phẩm
@@ -938,6 +1461,10 @@ class ERSportsAutomationGUI:
         if messagebox.askyesno("Xác nhận", "Bạn có chắc muốn xóa tất cả sản phẩm?"):
             self.product_tree.delete(*self.product_tree.get_children())
             self.log_message("Đã xóa tất cả sản phẩm", "INFO")
+
+            # Auto-save nếu bật
+            if self.auto_save_var.get():
+                self.save_settings()
 
     def import_accounts(self):
         """
@@ -970,6 +1497,10 @@ class ERSportsAutomationGUI:
                         ))
 
                 self.log_message(f"Đã import {len(accounts)} tài khoản từ {filename}", "SUCCESS")
+
+                # Auto-save sau khi import
+                if self.auto_save_var.get():
+                    self.save_settings()
 
             except Exception as e:
                 messagebox.showerror("Lỗi", f"Không thể import file: {str(e)}")
@@ -1040,6 +1571,10 @@ class ERSportsAutomationGUI:
                         ))
 
                 self.log_message(f"Đã import {len(products)} sản phẩm từ {filename}", "SUCCESS")
+
+                # Auto-save sau khi import
+                if self.auto_save_var.get():
+                    self.save_settings()
 
             except Exception as e:
                 messagebox.showerror("Lỗi", f"Không thể import file: {str(e)}")
@@ -1537,6 +2072,10 @@ class ERSportsAutomationGUI:
             self.config_listbox.insert(tk.END, os.path.basename(filename))
             self.log_message(f"Đã thêm config: {os.path.basename(filename)}", "INFO")
 
+            # Auto-save nếu bật
+            if self.auto_save_var.get():
+                self.save_settings()
+
     def remove_openvpn_config(self):
         """
         Xóa file config OpenVPN được chọn
@@ -1548,6 +2087,10 @@ class ERSportsAutomationGUI:
             self.config_listbox.delete(index)
             self.log_message(f"Đã xóa config: {os.path.basename(removed_file)}", "INFO")
 
+            # Auto-save nếu bật
+            if self.auto_save_var.get():
+                self.save_settings()
+
     def clear_openvpn_configs(self):
         """
         Xóa tất cả file config OpenVPN
@@ -1556,6 +2099,175 @@ class ERSportsAutomationGUI:
             self.openvpn_config_files.clear()
             self.config_listbox.delete(0, tk.END)
             self.log_message("Đã xóa tất cả config OpenVPN", "INFO")
+
+            # Auto-save nếu bật
+            if self.auto_save_var.get():
+                self.save_settings()
+
+    def save_settings(self):
+        """
+        Lưu tất cả cấu hình vào file
+        """
+        try:
+            settings = {
+                'accounts': [],
+                'products': [],
+                'chrome_path': self.chrome_path_var.get(),
+                'headless': self.headless_var.get(),
+                'account_delay': self.account_delay_var.get(),
+                'product_delay': self.product_delay_var.get(),
+                'auto_save': self.auto_save_var.get(),
+                'retry_failed': self.retry_failed_var.get(),
+                'max_retries': self.max_retries_var.get(),
+                'enable_openvpn': self.enable_openvpn_var.get(),
+                'openvpn_path': self.openvpn_path_var.get(),
+                'openvpn_configs': self.openvpn_config_files,
+                'openvpn_mode': self.openvpn_mode_var.get(),
+            }
+
+            # Lưu tài khoản
+            for item in self.account_tree.get_children():
+                values = self.account_tree.item(item)['values']
+                settings['accounts'].append({
+                    'email': values[0],
+                    'password': values[1],
+                    'name': values[2],
+                    'notes': values[3]
+                })
+
+            # Lưu sản phẩm
+            for item in self.product_tree.get_children():
+                values = self.product_tree.item(item)['values']
+                settings['products'].append({
+                    'productId': values[0],
+                    'name': values[1],
+                    'url': values[2],
+                    'category': values[3],
+                    'notes': values[4]
+                })
+
+            # Tìm config_dir - hỗ trợ cả khi chạy từ source và từ .exe
+            if getattr(sys, 'frozen', False):
+                # Chạy từ .exe
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Chạy từ source
+                base_path = os.path.dirname(__file__)
+
+            config_dir = os.path.join(base_path, 'config')
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+
+            settings_file = os.path.join(config_dir, 'settings.json')
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            print(f"Lỗi khi lưu cấu hình: {str(e)}")
+
+    def load_settings(self):
+        """
+        Load cấu hình từ file
+        """
+        try:
+            # Tìm config_dir - hỗ trợ cả khi chạy từ source và từ .exe
+            if getattr(sys, 'frozen', False):
+                # Chạy từ .exe
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Chạy từ source
+                base_path = os.path.dirname(__file__)
+
+            config_dir = os.path.join(base_path, 'config')
+            settings_file = os.path.join(config_dir, 'settings.json')
+
+            if not os.path.exists(settings_file):
+                return
+
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+
+            # Load tài khoản
+            if 'accounts' in settings:
+                for account in settings['accounts']:
+                    if len(self.account_tree.get_children()) < 10:
+                        self.account_tree.insert('', tk.END, values=(
+                            account.get('email', ''),
+                            account.get('password', ''),
+                            account.get('name', ''),
+                            account.get('notes', '')
+                        ))
+
+            # Load sản phẩm
+            if 'products' in settings:
+                for product in settings['products']:
+                    if len(self.product_tree.get_children()) < 20:
+                        self.product_tree.insert('', tk.END, values=(
+                            product.get('productId', ''),
+                            product.get('name', ''),
+                            product.get('url', ''),
+                            product.get('category', ''),
+                            product.get('notes', '')
+                        ))
+
+            # Load cài đặt
+            if 'chrome_path' in settings:
+                self.chrome_path_var.set(settings.get('chrome_path', ''))
+
+            if 'headless' in settings:
+                self.headless_var.set(settings.get('headless', False))
+
+            if 'account_delay' in settings:
+                self.account_delay_var.set(settings.get('account_delay', 5))
+
+            if 'product_delay' in settings:
+                self.product_delay_var.set(settings.get('product_delay', 3))
+
+            if 'auto_save' in settings:
+                self.auto_save_var.set(settings.get('auto_save', True))
+
+            if 'retry_failed' in settings:
+                self.retry_failed_var.set(settings.get('retry_failed', True))
+
+            if 'max_retries' in settings:
+                self.max_retries_var.set(settings.get('max_retries', 3))
+
+            # Load OpenVPN settings
+            if 'enable_openvpn' in settings:
+                self.enable_openvpn_var.set(settings.get('enable_openvpn', False))
+
+            if 'openvpn_path' in settings:
+                self.openvpn_path_var.set(settings.get('openvpn_path', ''))
+
+            if 'openvpn_mode' in settings:
+                self.openvpn_mode_var.set(settings.get('openvpn_mode', 'sequential'))
+
+            if 'openvpn_configs' in settings:
+                self.openvpn_config_files = [c for c in settings['openvpn_configs'] if os.path.exists(c)]
+                for config in self.openvpn_config_files:
+                    self.config_listbox.insert(tk.END, os.path.basename(config))
+
+            self.log_message("Đã load cấu hình đã lưu", "INFO")
+
+        except Exception as e:
+            print(f"Lỗi khi load cấu hình: {str(e)}")
+
+    def on_closing(self):
+        """
+        Xử lý khi đóng app
+        """
+        if self.is_running:
+            if messagebox.askokcancel("Thoát", "Automation đang chạy. Bạn có chắc muốn thoát?"):
+                self.stop_automation()
+                # Đợi một chút để cleanup
+                time.sleep(1)
+                # Lưu settings
+                self.save_settings()
+                self.root.destroy()
+        else:
+            # Lưu settings trước khi thoát
+            self.save_settings()
+            self.root.destroy()
 
     def run(self):
         """
