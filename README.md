@@ -13,12 +13,15 @@ Công cụ tự động đăng nhập và mua hàng từ website er-sports.com v
 - ✅ **Import/Export** - Hỗ trợ JSON cho tài khoản và sản phẩm
 - ✅ **Cấu hình linh hoạt** - Tùy chỉnh timing, browser settings
 - ✅ **Báo cáo chi tiết** - Xuất báo cáo kết quả
+- ✅ **OpenVPN Integration** - Tự động fake IP Nhật Bản
+- ✅ **Smart Automation Logic** - Mỗi sản phẩm chỉ mua 1 lần, tự động đổi IP khi thành công
 
 ## 📋 Yêu cầu hệ thống
 
 - **Python**: 3.7 trở lên
 - **Chrome Browser**: Cài đặt Google Chrome
 - **Operating System**: Windows, macOS, Linux
+- **OpenVPN**: (Tùy chọn) Để sử dụng tính năng fake IP Nhật Bản
 
 ## 🛠️ Cài đặt
 
@@ -64,7 +67,17 @@ python er_sports_automation.py
 - Nhấn **"Thêm sản phẩm"**
 - Tối đa 20 sản phẩm
 
-### 4. Cài đặt
+### 4. Cấu hình OpenVPN (Tùy chọn)
+- Mở tab **"Cài đặt"**
+- Kéo xuống phần **"Cài đặt OpenVPN"**
+- Bật **"Sử dụng OpenVPN để fake IP Nhật Bản"**
+- Chọn đường dẫn OpenVPN executable
+- Thêm các file config (.ovpn) của VPN Nhật Bản
+- Chọn chế độ:
+  - **Tuần tự**: Đổi IP theo thứ tự
+  - **Ngẫu nhiên**: Random IP mỗi lần
+
+### 5. Cài đặt
 - Mở tab **"Cài đặt"**
 - Cấu hình:
   - **Headless mode**: Chạy browser ẩn/hiện
@@ -72,7 +85,7 @@ python er_sports_automation.py
   - **Timing**: Delay giữa các tài khoản/sản phẩm
   - **Retry settings**: Số lần thử lại
 
-### 5. Chạy automation
+### 6. Chạy automation
 - Mở tab **"Điều khiển & Thống kê"**
 - Nhấn **"Bắt đầu Automation"**
 - Theo dõi tiến trình trong **"Trạng thái"**
@@ -103,6 +116,30 @@ python er_sports_automation.py
 - **Browser settings**: Headless, Chrome path
 - **Timing settings**: Delay giữa các thao tác
 - **Other settings**: Auto-save, retry options
+- **OpenVPN settings**: Enable VPN, config files, connection mode
+
+## 🤖 Logic Automation
+
+Tool hoạt động theo logic thông minh:
+
+### Khi OpenVPN được bật:
+1. **Kết nối VPN** với IP Nhật Bản đầu tiên
+2. **Đăng nhập** tài khoản đầu tiên
+3. **Thử mua từng sản phẩm** (mỗi sản phẩm chỉ mua 1 lần):
+   - **Nếu mua thành công**:
+     - Đăng xuất tài khoản
+     - Ngắt kết nối VPN
+     - Kết nối VPN với IP Nhật Bản khác
+     - Đăng nhập tài khoản tiếp theo
+     - Tiếp tục với sản phẩm tiếp theo
+   - **Nếu mua thất bại**:
+     - Giữ nguyên IP hiện tại
+     - Giữ nguyên tài khoản hiện tại
+     - Tiếp tục thử sản phẩm tiếp theo
+
+### Khi OpenVPN tắt:
+- Hoạt động tương tự nhưng không thay đổi IP
+- Mua thành công sẽ chuyển sang tài khoản tiếp theo
 
 ## 🔧 Cấu hình nâng cao
 
@@ -206,6 +243,17 @@ pip install webdriver-manager
 - Chạy headless mode
 - Kiểm tra tốc độ internet
 
+#### 5. OpenVPN không kết nối
+- Kiểm tra đường dẫn OpenVPN executable
+- Đảm bảo file config (.ovpn) hợp lệ
+- Chạy với quyền administrator
+- Kiểm tra OpenVPN đã được cài đặt
+
+#### 6. VPN bị ngắt kết nối
+- Kiểm tra kết nối internet
+- Đảm bảo file config không có lỗi
+- Tăng delay giữa các thao tác
+
 ## 📁 Cấu trúc file
 
 ```
@@ -236,7 +284,12 @@ MIT License - Sử dụng tự do cho mục đích cá nhân và thương mại.
 
 ## 🔄 Cập nhật
 
+- **v1.1.0**: 
+  - Thêm tích hợp OpenVPN
+  - Logic automation thông minh: Mỗi sản phẩm chỉ mua 1 lần
+  - Tự động đổi IP khi mua thành công
+  - Giữ nguyên IP khi mua thất bại
 - **v1.0.0**: Phiên bản đầu tiên với GUI hoàn chỉnh
-- Hỗ trợ đầy đủ các tính năng automation
-- Giao diện thân thiện và dễ sử dụng
-- Xử lý lỗi toàn diện
+  - Hỗ trợ đầy đủ các tính năng automation
+  - Giao diện thân thiện và dễ sử dụng
+  - Xử lý lỗi toàn diện
