@@ -1,0 +1,14 @@
+[
+  {
+    "email": "your-email@example.com",
+    "password": "your-password",
+    "name": "Tài khoản mẫu",
+    "notes": "Thay đổi thông tin này với tài khoản thực"
+  },
+  {
+    "email": "another-email@example.com",
+    "password": "another-password",
+    "name": "Tài khoản phụ",
+    "notes": "Tài khoản dự phòng"
+  }
+]

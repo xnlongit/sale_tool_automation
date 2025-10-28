@@ -1,0 +1,16 @@
+[
+  {
+    "productId": "12345",
+    "name": "Sản phẩm mẫu 1",
+    "url": "https://www.er-sports.com/shop/product/12345.html",
+    "category": "Thể thao",
+    "notes": "Thay đổi thông tin này với sản phẩm thực"
+  },
+  {
+    "productId": "67890",
+    "name": "Sản phẩm mẫu 2",
+    "url": "https://www.er-sports.com/shop/product/67890.html",
+    "category": "Phụ kiện",
+    "notes": "Sản phẩm hot"
+  }
+]

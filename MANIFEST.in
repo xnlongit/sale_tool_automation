@@ -1,0 +1,39 @@
+# MANIFEST.in for ER Sports Automation Tool
+# Bao gồm các file cần thiết trong package distribution
+
+# Bao gồm README và documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+include requirements.txt
+
+# Bao gồm các file cấu hình
+recursive-include config *.json *.yaml *.yml *.ini
+recursive-include data *.json *.csv *.xlsx
+
+# Bao gồm các file script
+include install.py
+include run.bat
+
+# Bao gồm documentation
+recursive-include docs *.md *.rst *.txt
+
+# Bao gồm các file test
+recursive-include tests *.py
+
+# Loại trừ các file không cần thiết
+exclude *.pyc
+exclude *.pyo
+exclude *.pyd
+exclude __pycache__
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude logs *.log
+recursive-exclude .git *
+recursive-exclude .vscode *
+recursive-exclude .idea *
+
+# Bao gồm các file khác
+global-include *.txt
+global-include *.md
+global-include *.json
