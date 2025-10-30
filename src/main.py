@@ -932,6 +932,10 @@ class ERSportsAutomationGUI:
         self.success_count = 0
         self.failure_count = 0
 
+        # Trạng thái mua hàng theo ngày
+        self.purchased_today = set()
+        self.purchased_date = datetime.now().strftime('%Y-%m-%d')
+
         # Queue để giao tiếp giữa threads
         self.log_queue = queue.Queue()
 
@@ -1157,6 +1161,7 @@ class ERSportsAutomationGUI:
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
         ttk.Button(buttons_frame, text="Reset Thống kê", command=self.reset_stats).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="Reset tài khoản đã mua hôm nay", command=self.reset_daily_purchases).pack(side=tk.LEFT, padx=5)
         ttk.Button(buttons_frame, text="Xuất Báo cáo", command=self.export_report).pack(side=tk.LEFT, padx=5)
 
         # Frame trạng thái
@@ -1728,19 +1733,32 @@ class ERSportsAutomationGUI:
                 self.log_message("Đã kết nối VPN với IP Nhật Bản đầu tiên", "INFO")
                 time.sleep(5)
 
-            # Lặp qua từng sản phẩm
-            for product_idx, product in enumerate(products):
-                if not self.is_running:
+            # Vòng lặp chính: chạy liên tục đến khi dừng hoặc hết tài khoản hợp lệ
+            while self.is_running:
+                # Đảm bảo ngày hiện tại; nếu qua ngày mới, tự làm sạch đánh dấu
+                today_str = datetime.now().strftime('%Y-%m-%d')
+                if self.purchased_date != today_str:
+                    self.purchased_today.clear()
+                    self.purchased_date = today_str
+                    self.save_settings()
+
+                # Tìm tài khoản kế tiếp chưa mua hôm nay
+                found_account = False
+                start_idx = current_account_index
+                while current_account_index < len(accounts):
+                    candidate = accounts[current_account_index]
+                    if candidate['email'] not in self.purchased_today:
+                        current_account = candidate
+                        found_account = True
+                        break
+                    current_account_index += 1
+
+                if not found_account:
+                    self.log_message("Đã sử dụng hết tài khoản hợp lệ (đã mua hôm nay sẽ bị bỏ qua).", "WARNING")
                     break
 
-                # Nếu chưa có tài khoản hoặc chưa đăng nhập
-                if not is_logged_in or current_account is None:
-                    if current_account_index >= len(accounts):
-                        self.log_message("Đã sử dụng hết tài khoản!", "WARNING")
-                        break
-
-                    # Đăng nhập với tài khoản tiếp theo
-                    current_account = accounts[current_account_index]
+                # Nếu chưa đăng nhập, đăng nhập vào tài khoản hiện tại
+                if not is_logged_in or self.browser is None:
                     self.log_message(f"Đăng nhập với tài khoản: {current_account['email']}", "INFO")
 
                     # Khởi tạo browser
@@ -1754,87 +1772,107 @@ class ERSportsAutomationGUI:
                         is_logged_in = True
                     else:
                         self.log_message(f"Đăng nhập thất bại: {current_account['email']}", "ERROR")
-                        current_account_index += 1
+                        # Đóng browser nếu có
                         if self.browser:
                             self.browser.close()
                             self.browser = None
+                        is_logged_in = False
+                        # Chuyển qua tài khoản tiếp theo
+                        current_account_index += 1
 
                         # Đổi VPN nếu còn tài khoản
                         if self.vpn_manager and self.vpn_manager.config_files and current_account_index < len(accounts):
                             self.log_message("Đang đổi sang IP Nhật Bản mới...", "INFO")
                             self.vpn_manager.disconnect()
                             time.sleep(3)
-
                             if self.openvpn_mode_var.get() == "random":
                                 self.vpn_manager.connect_random_japan()
                             else:
                                 self.vpn_manager.connect_next_japan()
-
                             self.log_message("Đã kết nối VPN mới", "INFO")
                             time.sleep(5)
-
                         continue
 
-                # Thử mua sản phẩm
-                self.scan_count += 1
-                self.update_stats()
+                # Đã đăng nhập -> quét liên tục danh sách sản phẩm cho đến khi mua thành công hoặc bị dừng
+                purchase_success = False
+                while self.is_running and is_logged_in and not purchase_success:
+                    for product_idx, product in enumerate(products):
+                        if not self.is_running or not is_logged_in:
+                            break
 
-                product_name = product.get('name') or product.get('productId')
-                self.log_message(f"Đang thử mua sản phẩm ({product_idx + 1}/{len(products)}): {product_name}", "INFO")
+                        # Thử mua sản phẩm
+                        self.scan_count += 1
+                        self.update_stats()
 
-                result = self.browser.purchase_product(product['url'], product['productId'])
+                        product_name = product.get('name') or product.get('productId')
+                        self.log_message(
+                            f"Đang thử mua sản phẩm ({product_idx + 1}/{len(products)}): {product_name}",
+                            "INFO"
+                        )
 
-                if result['success']:
-                    self.success_count += 1
-                    self.log_message(f"Mua thành công: {product_name}", "SUCCESS")
-                    self.update_stats()
+                        result = self.browser.purchase_product(product['url'], product['productId'])
 
-                    # Mua thành công -> đăng xuất, đổi IP, đổi tài khoản
-                    self.log_message("Mua thành công -> Đang đăng xuất và đổi IP...", "INFO")
+                        if result['success']:
+                            purchase_success = True
+                            self.success_count += 1
+                            self.log_message(f"Mua thành công: {product_name}", "SUCCESS")
+                            self.update_stats()
 
-                    # Đăng xuất
-                    self.browser.logout()
+                            # Đánh dấu tài khoản đã mua hôm nay và lưu
+                            self.purchased_today.add(current_account['email'])
+                            self.purchased_date = today_str
+                            self.save_settings()
 
-                    # Đóng browser
-                    if self.browser:
-                        self.browser.close()
-                        self.browser = None
+                            # Đăng xuất và đóng browser trước khi đổi IP
+                            try:
+                                self.browser.logout()
+                            except Exception:
+                                pass
+                            if self.browser:
+                                self.browser.close()
+                                self.browser = None
+                            is_logged_in = False
 
-                    is_logged_in = False
-                    current_account = None
-                    current_account_index += 1
+                            # Chuyển tài khoản tiếp theo
+                            current_account = None
+                            current_account_index += 1
 
-                    # Đổi VPN sang IP Nhật Bản khác (nếu bật)
-                    if self.vpn_manager and self.vpn_manager.config_files and current_account_index < len(accounts):
-                        self.log_message("Đang đổi sang IP Nhật Bản mới...", "INFO")
-                        self.vpn_manager.disconnect()
-                        time.sleep(3)
+                            # Đổi VPN sang IP Nhật Bản khác (nếu bật) cho tài khoản kế tiếp
+                            if self.vpn_manager and self.vpn_manager.config_files and current_account_index < len(accounts):
+                                self.log_message("Đang đổi sang IP Nhật Bản mới...", "INFO")
+                                self.vpn_manager.disconnect()
+                                time.sleep(3)
+                                if self.openvpn_mode_var.get() == "random":
+                                    self.vpn_manager.connect_random_japan()
+                                else:
+                                    self.vpn_manager.connect_next_japan()
+                                self.log_message("Đã kết nối VPN mới", "INFO")
+                                time.sleep(5)
 
-                        if self.openvpn_mode_var.get() == "random":
-                            self.vpn_manager.connect_random_japan()
+                            # Delay giữa các tài khoản
+                            if self.account_delay_var.get() > 0:
+                                time.sleep(self.account_delay_var.get())
+
+                            break
                         else:
-                            self.vpn_manager.connect_next_japan()
+                            self.failure_count += 1
+                            error_msg = result['error'] or "Lỗi không xác định"
+                            self.log_message(f"Mua thất bại: {product_name} - {error_msg}", "ERROR")
+                            self.update_stats()
 
-                        self.log_message("Đã kết nối VPN mới", "INFO")
-                        time.sleep(5)
+                            # Giữ nguyên IP và tài khoản, tiếp tục sản phẩm tiếp theo
+                            self.log_message(
+                                "Mua thất bại -> Giữ nguyên IP và tài khoản, tiếp tục quét tiếp",
+                                "INFO"
+                            )
+                            # Delay giữa các sản phẩm
+                            if self.product_delay_var.get() > 0:
+                                time.sleep(self.product_delay_var.get())
 
-                    # Delay giữa các tài khoản
-                    if self.account_delay_var.get() > 0:
-                        time.sleep(self.account_delay_var.get())
-
-                else:
-                    self.failure_count += 1
-                    error_msg = result['error'] or "Lỗi không xác định"
-                    self.log_message(f"Mua thất bại: {product_name} - {error_msg}", "ERROR")
-                    self.update_stats()
-
-                    # Mua thất bại -> giữ nguyên IP và tài khoản, tiếp tục với sản phẩm tiếp theo
-                    self.log_message("Mua thất bại -> Giữ nguyên IP và tài khoản, tiếp tục với sản phẩm tiếp theo",
-                                     "INFO")
-
-                    # Delay giữa các sản phẩm
-                    if self.product_delay_var.get() > 0:
-                        time.sleep(self.product_delay_var.get())
+                    # Kết thúc một vòng quét toàn bộ danh sách -> lặp lại nếu chưa thành công
+                    # Thêm một nhịp nghỉ ngắn để giảm tải
+                    if not purchase_success and self.is_running and is_logged_in:
+                        time.sleep(1)
 
             # Đóng browser và VPN nếu còn
             if self.browser:
@@ -1899,6 +1937,15 @@ class ERSportsAutomationGUI:
         self.failure_count = 0
         self.update_stats()
         self.log_message("Đã reset thống kê", "INFO")
+
+    def reset_daily_purchases(self):
+        """
+        Xóa đánh dấu các tài khoản đã mua thành công trong hôm nay
+        """
+        self.purchased_today.clear()
+        self.purchased_date = datetime.now().strftime('%Y-%m-%d')
+        self.save_settings()
+        self.log_message("Đã reset danh sách tài khoản đã mua hôm nay", "INFO")
 
     def export_report(self):
         """
@@ -2123,6 +2170,8 @@ class ERSportsAutomationGUI:
                 'openvpn_path': self.openvpn_path_var.get(),
                 'openvpn_configs': self.openvpn_config_files,
                 'openvpn_mode': self.openvpn_mode_var.get(),
+                'purchased_today': list(self.purchased_today),
+                'purchased_date': self.purchased_date,
             }
 
             # Lưu tài khoản
@@ -2246,6 +2295,15 @@ class ERSportsAutomationGUI:
                 self.openvpn_config_files = [c for c in settings['openvpn_configs'] if os.path.exists(c)]
                 for config in self.openvpn_config_files:
                     self.config_listbox.insert(tk.END, os.path.basename(config))
+
+            # Load đánh dấu tài khoản đã mua hôm nay
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            saved_date = settings.get('purchased_date', today_str)
+            if saved_date == today_str:
+                self.purchased_today = set(settings.get('purchased_today', []))
+            else:
+                self.purchased_today = set()
+            self.purchased_date = today_str
 
             self.log_message("Đã load cấu hình đã lưu", "INFO")
 
