@@ -34,6 +34,10 @@ import sys
 import shutil
 
 
+# URL cố định để mua tất cả sản phẩm (trang liệt kê sản phẩm)
+PRODUCT_LIST_URL = "https://www.er-sports.com/shop/shopbrand.html?search=mezz&sort=price_desc&money1=&money2=&prize1=&company1=&content1=&originalcode1=&category=&subcategory="
+
+
 class BrowserAutomation:
     """
     Class quản lý automation browser cho er-sports.com
@@ -1008,8 +1012,8 @@ class ERSportsAutomationGUI:
         account_frame = ttk.LabelFrame(main_frame, text="Danh sách tài khoản (Tối đa 10)")
         account_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Treeview cho tài khoản
-        columns = ('Email', 'Password', 'Tên', 'Ghi chú')
+        # Treeview cho tài khoản (chỉ còn Email, Password)
+        columns = ('Email', 'Password')
         self.account_tree = ttk.Treeview(account_frame, columns=columns, show='headings', height=6)
 
         for col in columns:
@@ -1036,17 +1040,9 @@ class ERSportsAutomationGUI:
         self.password_var = tk.StringVar()
         ttk.Entry(account_input_frame, textvariable=self.password_var, show="*", width=20).grid(row=0, column=3, padx=2)
 
-        ttk.Label(account_input_frame, text="Tên:").grid(row=1, column=0, sticky=tk.W, padx=2)
-        self.name_var = tk.StringVar()
-        ttk.Entry(account_input_frame, textvariable=self.name_var, width=30).grid(row=1, column=1, padx=2)
-
-        ttk.Label(account_input_frame, text="Ghi chú:").grid(row=1, column=2, sticky=tk.W, padx=2)
-        self.notes_var = tk.StringVar()
-        ttk.Entry(account_input_frame, textvariable=self.notes_var, width=20).grid(row=1, column=3, padx=2)
-
         # Buttons cho tài khoản
         account_buttons_frame = ttk.Frame(account_input_frame)
-        account_buttons_frame.grid(row=2, column=0, columnspan=4, pady=5)
+        account_buttons_frame.grid(row=1, column=0, columnspan=4, pady=5)
 
         ttk.Button(account_buttons_frame, text="Thêm tài khoản", command=self.add_account).pack(side=tk.LEFT, padx=2)
         ttk.Button(account_buttons_frame, text="Xóa tài khoản", command=self.remove_account).pack(side=tk.LEFT, padx=2)
@@ -1058,8 +1054,8 @@ class ERSportsAutomationGUI:
         product_frame = ttk.LabelFrame(main_frame, text="Danh sách sản phẩm (Tối đa 20)")
         product_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Treeview cho sản phẩm
-        product_columns = ('ID', 'Tên', 'URL', 'Danh mục', 'Ghi chú')
+        # Treeview cho sản phẩm (chỉ còn ID)
+        product_columns = ('ID',)
         self.product_tree = ttk.Treeview(product_frame, columns=product_columns, show='headings', height=6)
 
         for col in product_columns:
@@ -1077,32 +1073,14 @@ class ERSportsAutomationGUI:
         product_input_frame = ttk.Frame(product_frame)
         product_input_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        # Các trường nhập liệu cho sản phẩm
+        # Các trường nhập liệu cho sản phẩm (chỉ Product ID)
         ttk.Label(product_input_frame, text="Product ID:").grid(row=0, column=0, sticky=tk.W, padx=2)
         self.product_id_var = tk.StringVar()
         ttk.Entry(product_input_frame, textvariable=self.product_id_var, width=15).grid(row=0, column=1, padx=2)
 
-        ttk.Label(product_input_frame, text="Tên:").grid(row=0, column=2, sticky=tk.W, padx=2)
-        self.product_name_var = tk.StringVar()
-        ttk.Entry(product_input_frame, textvariable=self.product_name_var, width=25).grid(row=0, column=3, padx=2)
-
-        ttk.Label(product_input_frame, text="URL:").grid(row=1, column=0, sticky=tk.W, padx=2)
-        self.product_url_var = tk.StringVar()
-        ttk.Entry(product_input_frame, textvariable=self.product_url_var, width=40).grid(row=1, column=1, columnspan=2,
-                                                                                         padx=2)
-
-        ttk.Label(product_input_frame, text="Danh mục:").grid(row=1, column=3, sticky=tk.W, padx=2)
-        self.product_category_var = tk.StringVar()
-        ttk.Entry(product_input_frame, textvariable=self.product_category_var, width=15).grid(row=1, column=4, padx=2)
-
-        ttk.Label(product_input_frame, text="Ghi chú:").grid(row=2, column=0, sticky=tk.W, padx=2)
-        self.product_notes_var = tk.StringVar()
-        ttk.Entry(product_input_frame, textvariable=self.product_notes_var, width=40).grid(row=2, column=1,
-                                                                                           columnspan=3, padx=2)
-
         # Buttons cho sản phẩm
         product_buttons_frame = ttk.Frame(product_input_frame)
-        product_buttons_frame.grid(row=3, column=0, columnspan=5, pady=5)
+        product_buttons_frame.grid(row=1, column=0, columnspan=2, pady=5)
 
         ttk.Button(product_buttons_frame, text="Thêm sản phẩm", command=self.add_product).pack(side=tk.LEFT, padx=2)
         ttk.Button(product_buttons_frame, text="Xóa sản phẩm", command=self.remove_product).pack(side=tk.LEFT, padx=2)
@@ -1343,8 +1321,6 @@ class ERSportsAutomationGUI:
 
         email = self.email_var.get().strip()
         password = self.password_var.get().strip()
-        name = self.name_var.get().strip()
-        notes = self.notes_var.get().strip()
 
         if not email or not password:
             messagebox.showerror("Lỗi", "Email và Password không được để trống!")
@@ -1357,13 +1333,11 @@ class ERSportsAutomationGUI:
                 return
 
         # Thêm vào treeview
-        self.account_tree.insert('', tk.END, values=(email, password, name, notes))
+        self.account_tree.insert('', tk.END, values=(email, password))
 
         # Xóa các trường nhập liệu
         self.email_var.set("")
         self.password_var.set("")
-        self.name_var.set("")
-        self.notes_var.set("")
 
         self.log_message(f"Đã thêm tài khoản: {email}", "INFO")
 
@@ -1410,13 +1384,9 @@ class ERSportsAutomationGUI:
             return
 
         product_id = self.product_id_var.get().strip()
-        name = self.product_name_var.get().strip()
-        url = self.product_url_var.get().strip()
-        category = self.product_category_var.get().strip()
-        notes = self.product_notes_var.get().strip()
 
-        if not product_id or not url:
-            messagebox.showerror("Lỗi", "Product ID và URL không được để trống!")
+        if not product_id:
+            messagebox.showerror("Lỗi", "Product ID không được để trống!")
             return
 
         # Kiểm tra product ID đã tồn tại chưa
@@ -1426,16 +1396,12 @@ class ERSportsAutomationGUI:
                 return
 
         # Thêm vào treeview
-        self.product_tree.insert('', tk.END, values=(product_id, name, url, category, notes))
+        self.product_tree.insert('', tk.END, values=(product_id,))
 
         # Xóa các trường nhập liệu
         self.product_id_var.set("")
-        self.product_name_var.set("")
-        self.product_url_var.set("")
-        self.product_category_var.set("")
-        self.product_notes_var.set("")
 
-        self.log_message(f"Đã thêm sản phẩm: {name or product_id}", "INFO")
+        self.log_message(f"Đã thêm sản phẩm: {product_id}", "INFO")
 
         # Auto-save nếu bật
         if self.auto_save_var.get():
@@ -1496,9 +1462,7 @@ class ERSportsAutomationGUI:
                     if isinstance(account, dict) and 'email' in account and 'password' in account:
                         self.account_tree.insert('', tk.END, values=(
                             account.get('email', ''),
-                            account.get('password', ''),
-                            account.get('name', ''),
-                            account.get('notes', '')
+                            account.get('password', '')
                         ))
 
                 self.log_message(f"Đã import {len(accounts)} tài khoản từ {filename}", "SUCCESS")
@@ -1519,9 +1483,7 @@ class ERSportsAutomationGUI:
             values = self.account_tree.item(item)['values']
             accounts.append({
                 'email': values[0],
-                'password': values[1],
-                'name': values[2],
-                'notes': values[3]
+                'password': values[1]
             })
 
         if not accounts:
@@ -1566,13 +1528,9 @@ class ERSportsAutomationGUI:
 
                 # Thêm sản phẩm mới
                 for product in products[:20]:  # Giới hạn 20 sản phẩm
-                    if isinstance(product, dict) and 'productId' in product and 'url' in product:
+                    if isinstance(product, dict) and 'productId' in product:
                         self.product_tree.insert('', tk.END, values=(
-                            product.get('productId', ''),
-                            product.get('name', ''),
-                            product.get('url', ''),
-                            product.get('category', ''),
-                            product.get('notes', '')
+                            product.get('productId', '')
                         ))
 
                 self.log_message(f"Đã import {len(products)} sản phẩm từ {filename}", "SUCCESS")
@@ -1592,11 +1550,7 @@ class ERSportsAutomationGUI:
         for item in self.product_tree.get_children():
             values = self.product_tree.item(item)['values']
             products.append({
-                'productId': values[0],
-                'name': values[1],
-                'url': values[2],
-                'category': values[3],
-                'notes': values[4]
+                'productId': values[0]
             })
 
         if not products:
@@ -1629,20 +1583,14 @@ class ERSportsAutomationGUI:
             values = self.account_tree.item(item)['values']
             accounts.append({
                 'email': values[0],
-                'password': values[1],
-                'name': values[2],
-                'notes': values[3]
+                'password': values[1]
             })
 
         products = []
         for item in self.product_tree.get_children():
             values = self.product_tree.item(item)['values']
             products.append({
-                'productId': values[0],
-                'name': values[1],
-                'url': values[2],
-                'category': values[3],
-                'notes': values[4]
+                'productId': values[0]
             })
 
         if not accounts:
@@ -1804,13 +1752,13 @@ class ERSportsAutomationGUI:
                         self.scan_count += 1
                         self.update_stats()
 
-                        product_name = product.get('name') or product.get('productId')
+                        product_name = product.get('productId')
                         self.log_message(
                             f"Đang thử mua sản phẩm ({product_idx + 1}/{len(products)}): {product_name}",
                             "INFO"
                         )
 
-                        result = self.browser.purchase_product(product['url'], product['productId'])
+                        result = self.browser.purchase_product(PRODUCT_LIST_URL, product['productId'])
 
                         if result['success']:
                             purchase_success = True
@@ -1967,20 +1915,14 @@ class ERSportsAutomationGUI:
         for item in self.account_tree.get_children():
             values = self.account_tree.item(item)['values']
             report['accounts'].append({
-                'email': values[0],
-                'name': values[2],
-                'notes': values[3]
+                'email': values[0]
             })
 
         # Thêm thông tin sản phẩm
         for item in self.product_tree.get_children():
             values = self.product_tree.item(item)['values']
             report['products'].append({
-                'productId': values[0],
-                'name': values[1],
-                'url': values[2],
-                'category': values[3],
-                'notes': values[4]
+                'productId': values[0]
             })
 
         filename = filedialog.asksaveasfilename(
@@ -2174,25 +2116,19 @@ class ERSportsAutomationGUI:
                 'purchased_date': self.purchased_date,
             }
 
-            # Lưu tài khoản
+            # Lưu tài khoản (email, password)
             for item in self.account_tree.get_children():
                 values = self.account_tree.item(item)['values']
                 settings['accounts'].append({
                     'email': values[0],
-                    'password': values[1],
-                    'name': values[2],
-                    'notes': values[3]
+                    'password': values[1]
                 })
 
-            # Lưu sản phẩm
+            # Lưu sản phẩm (chỉ productId)
             for item in self.product_tree.get_children():
                 values = self.product_tree.item(item)['values']
                 settings['products'].append({
-                    'productId': values[0],
-                    'name': values[1],
-                    'url': values[2],
-                    'category': values[3],
-                    'notes': values[4]
+                    'productId': values[0]
                 })
 
             # Tìm config_dir - hỗ trợ cả khi chạy từ source và từ .exe
@@ -2242,9 +2178,7 @@ class ERSportsAutomationGUI:
                     if len(self.account_tree.get_children()) < 10:
                         self.account_tree.insert('', tk.END, values=(
                             account.get('email', ''),
-                            account.get('password', ''),
-                            account.get('name', ''),
-                            account.get('notes', '')
+                            account.get('password', '')
                         ))
 
             # Load sản phẩm
@@ -2252,11 +2186,7 @@ class ERSportsAutomationGUI:
                 for product in settings['products']:
                     if len(self.product_tree.get_children()) < 20:
                         self.product_tree.insert('', tk.END, values=(
-                            product.get('productId', ''),
-                            product.get('name', ''),
-                            product.get('url', ''),
-                            product.get('category', ''),
-                            product.get('notes', '')
+                            product.get('productId', '')
                         ))
 
             # Load cài đặt
