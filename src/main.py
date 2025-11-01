@@ -32,7 +32,15 @@ from selenium.webdriver.common.alert import Alert
 import queue
 import sys
 import shutil
+import re
 
+# Thử import webdriver-manager để tự động quản lý ChromeDriver
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+
+    WEBDRIVER_MANAGER_AVAILABLE = True
+except ImportError:
+    WEBDRIVER_MANAGER_AVAILABLE = False
 
 # URL cố định để mua tất cả sản phẩm (trang liệt kê sản phẩm)
 PRODUCT_LIST_URL = "https://www.er-sports.com/shop/shopbrand.html?search=mezz&sort=price_desc&money1=&money2=&prize1=&company1=&content1=&originalcode1=&category=&subcategory="
@@ -303,7 +311,7 @@ class BrowserAutomation:
 
             # Tìm đường dẫn Chrome
             chrome_executable = self.chrome_path if (
-                        self.chrome_path and os.path.exists(self.chrome_path)) else self.find_chrome_executable()
+                    self.chrome_path and os.path.exists(self.chrome_path)) else self.find_chrome_executable()
 
             if chrome_executable:
                 chrome_options.binary_location = chrome_executable
@@ -313,15 +321,36 @@ class BrowserAutomation:
                 print("Không tìm thấy Chrome, sẽ sử dụng Chrome mặc định trong PATH")
 
             # Tìm đường dẫn ChromeDriver
+            # Ưu tiên: 1. ChromeDriver đã có sẵn, 2. webdriver-manager tự động tải, 3. Service() mặc định
             chromedriver_path = self.find_chromedriver_executable()
+            service = None
 
             if chromedriver_path:
                 if verbose:
                     print(f"Sử dụng ChromeDriver tại: {chromedriver_path}")
                 service = Service(chromedriver_path)
+            elif WEBDRIVER_MANAGER_AVAILABLE:
+                try:
+                    if verbose:
+                        print("Không tìm thấy ChromeDriver, đang tải tự động bằng webdriver-manager...")
+                    chromedriver_path = ChromeDriverManager().install()
+                    if verbose:
+                        print(f"✓ Đã tải và cài đặt ChromeDriver tại: {chromedriver_path}")
+                    service = Service(chromedriver_path)
+                except Exception as e:
+                    if verbose:
+                        print(f"Cảnh báo: Không thể tải ChromeDriver tự động: {str(e)}")
+                    # Fallback: thử dùng Service() mặc định
+                    if verbose:
+                        print("Đang thử sử dụng ChromeDriver mặc định từ selenium...")
+                    service = Service()
             else:
                 if verbose:
-                    print("Không tìm thấy ChromeDriver, sử dụng mặc định từ selenium")
+                    print("⚠️  Không tìm thấy ChromeDriver!")
+                    print("💡 Để tự động tải ChromeDriver, vui lòng cài đặt:")
+                    print("   pip install webdriver-manager")
+                    print("   Hoặc tải ChromeDriver thủ công từ: https://chromedriver.chromium.org/")
+                    print("Đang thử sử dụng ChromeDriver mặc định từ selenium...")
                 service = Service()
 
             # Khởi tạo WebDriver
@@ -339,6 +368,22 @@ class BrowserAutomation:
                 print("Đang thử sử dụng Chrome và ChromeDriver mặc định...")
 
             try:
+                # Thử với webdriver-manager nếu có
+                if WEBDRIVER_MANAGER_AVAILABLE:
+                    try:
+                        if verbose:
+                            print("Đang thử tải ChromeDriver bằng webdriver-manager...")
+                        chromedriver_path = ChromeDriverManager().install()
+                        if verbose:
+                            print(f"Đã tải ChromeDriver tại: {chromedriver_path}")
+                        service = Service(chromedriver_path)
+                    except Exception as e_manager:
+                        if verbose:
+                            print(f"Cảnh báo: Không thể tải ChromeDriver: {str(e_manager)}")
+                        service = Service()
+                else:
+                    service = Service()
+
                 # Thử với cài đặt mặc định
                 chrome_options = Options()
                 chrome_options.add_argument("--lang=en-US")
@@ -348,7 +393,7 @@ class BrowserAutomation:
                 if self.headless:
                     chrome_options.add_argument("--headless=new")
 
-                self.driver = webdriver.Chrome(options=chrome_options)
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 self.driver.execute_script(
                     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
                 )
@@ -358,6 +403,12 @@ class BrowserAutomation:
             except Exception as e2:
                 if verbose:
                     print(f"Lỗi khởi tạo browser với cài đặt mặc định: {str(e2)}")
+                    if "chromedriver" in str(e2).lower():
+                        print("\n⚠️  LỖI: Không tìm thấy ChromeDriver!")
+                        print("💡 Giải pháp:")
+                        print("   1. Cài đặt webdriver-manager: pip install webdriver-manager")
+                        print("   2. Hoặc tải ChromeDriver thủ công từ: https://chromedriver.chromium.org/")
+                        print("   3. Đặt ChromeDriver vào PATH hoặc cùng thư mục với script")
                 return False
 
     def login(self, email, password):
@@ -568,11 +619,11 @@ class BrowserAutomation:
 
     def purchase_product(self, product_url, product_id):
         """
-        Mua sản phẩm từ URL và product ID
+        Mua sản phẩm bằng cách quét từng page trong listing, tìm sản phẩm có chứa product_id trong tên
 
         Args:
-            product_url (str): URL của sản phẩm
-            product_id (str): ID của sản phẩm
+            product_url (str): URL của trang listing (không dùng trực tiếp)
+            product_id (str): ID của sản phẩm cần tìm (tìm trong tên sản phẩm)
 
         Returns:
             dict: Kết quả mua hàng với thông tin chi tiết
@@ -590,161 +641,368 @@ class BrowserAutomation:
                 return result
 
             # Xóa giỏ hàng trước
+            print(f"[purchase] Xóa giỏ hàng trước khi mua sản phẩm {product_id}")
             self.driver.get("https://www.er-sports.com/shop/basket.html")
             time.sleep(2)
-
-            # Đóng các popup trước khi thao tác
             self.close_popups()
             time.sleep(0.5)
 
             try:
-                # Thử tìm và click nút clear
                 clear_button = self.driver.find_element(By.CSS_SELECTOR,
-                                                        '.btn-wrap-back a[href="JavaScript:basket_clear()"]')
-
-                # Sử dụng JavaScript click để tránh element intercepted
+                                                        '.btn-wrap-back a[href*="basket_clear"]')
                 try:
                     self.driver.execute_script("arguments[0].click();", clear_button)
                     time.sleep(1)
-
-                    # Xử lý alert nếu có
                     try:
                         WebDriverWait(self.driver, 5).until(EC.alert_is_present())
                         alert = self.driver.switch_to.alert
-                        alert_text = alert.text
-                        print(f"[purchase] Alert xuất hiện: {alert_text}")
-                        alert.accept()  # Accept alert để xóa giỏ hàng
-                        print("[purchase] ✓ Đã accept alert")
+                        alert.accept()
                         time.sleep(1)
                     except TimeoutException:
-                        # Không có alert, bình thường
-                        print("[purchase] Không có alert")
                         pass
-                    except Exception as e:
-                        print(f"[purchase] Lỗi xử lý alert: {str(e)}")
-                        pass
-
                 except:
-                    # Fallback: click bình thường
                     clear_button.click()
                     time.sleep(1)
-
-                    # Xử lý alert nếu có
                     try:
                         WebDriverWait(self.driver, 5).until(EC.alert_is_present())
                         alert = self.driver.switch_to.alert
-                        alert_text = alert.text
-                        print(f"[purchase] Alert xuất hiện: {alert_text}")
-                        alert.accept()  # Accept alert để xóa giỏ hàng
-                        print("[purchase] ✓ Đã accept alert")
+                        alert.accept()
                         time.sleep(1)
                     except TimeoutException:
-                        # Không có alert, bình thường
-                        print("[purchase] Không có alert")
                         pass
-                    except Exception as e:
-                        print(f"[purchase] Lỗi xử lý alert: {str(e)}")
-                        pass
-
             except NoSuchElementException:
-                pass  # Giỏ hàng có thể đã trống
+                pass  # Giỏ hàng đã trống
 
-            # Truy cập trang sản phẩm
-            self.driver.get(product_url)
+            # Bắt đầu quét từ page đầu tiên
+            listing_url = PRODUCT_LIST_URL
+            current_page = 1
+            max_pages_to_scan = 5  # Giới hạn số page để tránh vòng lặp vô hạn
+            total_scans = 0  # Đếm tổng số lần quét để tránh vòng lặp vô hạn khi refresh
+            product_found = False
+            product_detail_url = None
+
+            while not product_found and current_page <= max_pages_to_scan and total_scans < max_pages_to_scan:
+                total_scans += 1
+                print(f"[purchase] Quét page {current_page} để tìm sản phẩm {product_id} (Lần quét: {total_scans}/{max_pages_to_scan})")
+
+                # Truy cập trang listing
+                if current_page == 1:
+                    listing_url = PRODUCT_LIST_URL
+                    self.driver.get(listing_url)
+                else:
+                    self.driver.get(listing_url)
+
+                time.sleep(2)
+                self.close_popups()
+                time.sleep(0.5)
+
+                # Tìm tất cả các sản phẩm trong trang
+                try:
+                    # Thử nhiều selector khác nhau để tìm link sản phẩm
+                    product_items = self.driver.find_elements(By.CSS_SELECTOR,
+                                                              'ul.category-list li .detail p.name a, .category-list li .detail p.name a, '
+                                                              '.category-list li p.name a, ul.category-list p.name a, '
+                                                              'a[href*="/shopdetail"], a[href*="shopdetail.html"]')
+
+                    # Lọc các link có text (tên sản phẩm)
+                    valid_product_items = []
+                    for item in product_items:
+                        try:
+                            text = item.text.strip()
+                            href = item.get_attribute('href') or ''
+                            if text and href and ('shopdetail' in href):
+                                valid_product_items.append(item)
+                        except:
+                            continue
+
+                    product_items = valid_product_items
+                    print(f"[purchase] Tìm thấy {len(product_items)} sản phẩm trong page {current_page}")
+
+                    for product_link in product_items:
+                        try:
+                            product_name = product_link.text
+                            href = product_link.get_attribute('href')
+
+                            # Kiểm tra xem product_id có trong tên sản phẩm không
+                            if product_id and product_id in product_name:
+                                print(f"[purchase] ✓ Tìm thấy sản phẩm: {product_name}")
+                                product_found = True
+
+                                # Lấy URL đầy đủ
+                                if href.startswith('/'):
+                                    product_detail_url = f"https://www.er-sports.com{href}"
+                                elif href.startswith('http'):
+                                    product_detail_url = href
+                                else:
+                                    product_detail_url = f"https://www.er-sports.com/{href}"
+
+                                break
+                        except Exception as e:
+                            print(f"[purchase] Lỗi khi xử lý sản phẩm: {str(e)}")
+                            continue
+
+                    # Nếu không tìm thấy trong page này, thử tìm link "次の48件"
+                    if not product_found:
+                        try:
+                            # Tìm link "次の48件" trong li.next
+                            next_link = self.driver.find_element(By.CSS_SELECTOR, 'li.next a')
+                            next_text = next_link.text
+
+                            # Kiểm tra xem có phải link "次の48件" không
+                            if "次の" in next_text or "»" in next_text:
+                                next_href = next_link.get_attribute('href')
+                                if next_href:
+                                    # Chuẩn hóa URL
+                                    if next_href.startswith('/'):
+                                        next_href = f"https://www.er-sports.com{next_href}"
+
+                                    # Trích xuất số page từ URL
+                                    page_match = re.search(r'page=(\d+)', next_href)
+                                    if page_match:
+                                        next_page_num = int(page_match.group(1))
+                                        if next_page_num > current_page:
+                                            current_page = next_page_num
+                                            listing_url = next_href
+                                            print(f"[purchase] Chuyển sang page {current_page}")
+                                            continue
+                            else:
+                                # Không tìm thấy link next hợp lệ, thử tăng page number
+                                current_page += 1
+                                if current_page <= max_pages_to_scan:
+                                    separator = "&" if "?" in listing_url else "?"
+                                    if "page=" not in listing_url:
+                                        listing_url = f"{listing_url}{separator}page={current_page}"
+                                    else:
+                                        listing_url = re.sub(r'page=\d+', f'page={current_page}', listing_url)
+                                    continue
+                        except NoSuchElementException:
+                            print(f"[purchase] Không tìm thấy link chuyển trang tiếp theo")
+                            # Nếu không tìm thấy link next và đã quét hết, F5 và quét lại từ đầu
+                            print(f"[purchase] Quét hết page, refresh và quét lại từ đầu")
+                            self.driver.refresh()
+                            time.sleep(2)
+                            self.close_popups()
+                            current_page = 1
+                            listing_url = PRODUCT_LIST_URL
+                            continue
+
+                except Exception as e:
+                    print(f"[purchase] Lỗi khi quét sản phẩm: {str(e)}")
+                    # Nếu có lỗi, refresh và thử lại từ đầu
+                    self.driver.refresh()
+                    time.sleep(2)
+                    self.close_popups()
+                    current_page = 1
+                    listing_url = PRODUCT_LIST_URL
+                    continue
+
+            # Nếu không tìm thấy sản phẩm sau khi quét hết
+            if not product_found:
+                result['error'] = f"Không tìm thấy sản phẩm có ID {product_id} sau khi quét {max_pages_to_scan} pages"
+                return result
+
+            # Đã tìm thấy sản phẩm, vào trang chi tiết
+            print(f"[purchase] Vào trang chi tiết sản phẩm: {product_detail_url}")
+            self.driver.get(product_detail_url)
             time.sleep(2)
+            self.close_popups()
+            time.sleep(0.5)
 
-            # Kiểm tra sản phẩm có tồn tại không
-            try:
-                product_title = self.driver.find_element(By.CSS_SELECTOR, 'h1, .product-title, .product-name')
-                print(f"Đang mua sản phẩm: {product_title.text}")
-            except NoSuchElementException:
-                result['error'] = "Không tìm thấy sản phẩm"
-                return result
-
-            # Kiểm tra tình trạng hàng
-            try:
-                # Kiểm tra các thông báo hết hàng
-                out_of_stock_elements = self.driver.find_elements(By.CSS_SELECTOR,
-                                                                  '.out-of-stock, .sold-out, .unavailable, .no-stock, [class*="out"], [class*="sold"]')
-
-                for element in out_of_stock_elements:
-                    if element.is_displayed() and any(keyword in element.text.lower()
-                                                      for keyword in
-                                                      ['hết hàng', 'sold out', 'out of stock', 'unavailable']):
-                        result['error'] = "Sản phẩm đã hết hàng"
-                        return result
-
-            except Exception:
-                pass
-
-            # Chọn sản phẩm
-            try:
-                product_selector = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, f'input[name="product_id"][value="{product_id}"]'))
-                )
-                product_selector.click()
-                time.sleep(1)
-            except TimeoutException:
-                result['error'] = "Không tìm thấy selector sản phẩm"
-                return result
-
-            # Thêm vào giỏ hàng
+            # Tìm và click nút "カートへ入れる" (thêm vào giỏ hàng)
+            print(f"[purchase] Tìm nút thêm vào giỏ hàng...")
             try:
                 add_to_cart_button = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'a[href="javascript:basket_add(\'detail\')"]'))
+                    EC.element_to_be_clickable((By.CSS_SELECTOR,
+                                                '.item-basket-btn a.btn-basket, a[href*="JavaScript:send"][class*="btn-basket"]'))
                 )
 
-                # Sử dụng JavaScript click để tránh bị intercept
+                print(f"[purchase] Tìm thấy nút thêm vào giỏ hàng, đang click...")
                 try:
                     self.driver.execute_script("arguments[0].click();", add_to_cart_button)
-                    time.sleep(2)
+                    print(f"[purchase] ✓ Đã click nút thêm vào giỏ hàng bằng JavaScript")
                 except:
                     add_to_cart_button.click()
-                    time.sleep(2)
+                    print(f"[purchase] ✓ Đã click nút thêm vào giỏ hàng bằng click thường")
 
+                # Đợi một chút để JavaScript xử lý
+                time.sleep(2)
+
+                # Đợi cho đến khi URL thay đổi hoặc có dấu hiệu chuyển trang
+                try:
+                    WebDriverWait(self.driver, 10).until(
+                        lambda d: "basket.html" in d.current_url or d.current_url != product_detail_url
+                    )
+                    print(f"[purchase] ✓ URL đã thay đổi, đang chuyển sang giỏ hàng...")
+                except TimeoutException:
+                    print(f"[purchase] Cảnh báo: URL chưa thay đổi sau khi click, nhưng vẫn tiếp tục...")
+                    # Thử navigate trực tiếp nếu cần
+                    if "basket.html" not in self.driver.current_url:
+                        print(f"[purchase] Tự động chuyển sang trang giỏ hàng...")
+                        self.driver.get("https://www.er-sports.com/shop/basket.html")
             except TimeoutException:
-                result['error'] = "Không thể thêm vào giỏ hàng"
+                result['error'] = "Không tìm thấy nút thêm vào giỏ hàng"
                 return result
 
-            # Chuyển đến trang đặt hàng
-            self.driver.get("https://www.er-sports.com/shop/order.html")
-            time.sleep(2)
+            # Đợi chuyển sang trang giỏ hàng
+            print(f"[purchase] Đợi chuyển sang trang giỏ hàng...")
+            WebDriverWait(self.driver, 15).until(
+                lambda d: "basket.html" in d.current_url
+            )
+            # Đợi trang load hoàn toàn
+            time.sleep(3)
+            self.close_popups()
+            time.sleep(1)
 
-            # Submit đơn hàng
+            # Đợi cho đến khi trang basket load xong (kiểm tra xem có table.basket không)
             try:
-                submit_button = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[onclick="javascript:order_submit()"]'))
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'table.basket, .basket-wrap'))
+                )
+            except TimeoutException:
+                print(f"[purchase] Cảnh báo: Không tìm thấy bảng giỏ hàng sau khi đợi")
+
+            # Kiểm tra trong giỏ hàng có sản phẩm hay không
+            print(f"[purchase] Kiểm tra giỏ hàng...")
+
+            # Kiểm tra xem có thông báo "giỏ hàng trống" không
+            page_source = self.driver.page_source
+            is_empty = "買い物かごに商品がありません" in page_source or "カートに商品がありません" in page_source
+
+            if is_empty:
+                result['error'] = "Giỏ hàng trống, sản phẩm không được thêm vào"
+                print(f"[purchase] ✗ Giỏ hàng trống")
+                return result
+
+            print(f"[purchase] ✓ Giỏ hàng có sản phẩm (không trống)")
+
+            # Thử đếm số sản phẩm (nhưng không bắt buộc phải chính xác)
+            try:
+                # Tìm các hàng sản phẩm trong table.basket (loại trừ header và message trống)
+                cart_rows = self.driver.find_elements(By.CSS_SELECTOR,
+                                                      'table.basket tbody tr')
+
+                # Lọc các hàng có sản phẩm (không phải header, không phải message trống)
+                actual_items = []
+                for row in cart_rows:
+                    try:
+                        row_text = row.text.strip()
+                        # Loại trừ header và message trống
+                        if (row_text and
+                                "商品情報" not in row_text and
+                                "数量" not in row_text and
+                                "買い物かごに商品がありません" not in row_text and
+                                "カートに商品がありません" not in row_text):
+                            # Kiểm tra xem có input amount hoặc link sản phẩm không
+                            has_amount_input = row.find_elements(By.CSS_SELECTOR,
+                                                                 'input[type="text"][name*="amount"], input[type="number"][name*="amount"]')
+                            has_product_link = row.find_elements(By.CSS_SELECTOR, 'a[href*="shopdetail"]')
+                            if has_amount_input or has_product_link:
+                                actual_items.append(row)
+                    except:
+                        pass
+
+                item_count = len(actual_items)
+                print(f"[purchase] Số sản phẩm trong giỏ hàng (ước tính): {item_count}")
+
+                # Nếu đếm được ít nhất 1 sản phẩm, tiếp tục
+                # Nếu đếm được 0 nhưng đã kiểm tra không trống ở trên (is_empty = False),
+                # vẫn tiếp tục (có thể selector không đúng, nhưng có sản phẩm trong giỏ hàng)
+                if item_count == 0:
+                    print(f"[purchase] Cảnh báo: Không đếm được sản phẩm, nhưng giỏ hàng không trống, vẫn tiếp tục...")
+            except Exception as e:
+                print(f"[purchase] Cảnh báo: Không thể đếm sản phẩm: {str(e)}, nhưng vẫn tiếp tục...")
+
+            # Tìm và click nút "購入手続きへ進む"
+            print(f"[purchase] Tìm nút checkout...")
+            try:
+                checkout_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR,
+                                                '.btn-wrap-order a[href*="sslorder"], a.btn[href*="sslorder"], .btn-wrap-order a.btn'))
+                )
+            except TimeoutException:
+                # Thử tìm bằng text
+                try:
+                    checkout_button = WebDriverWait(self.driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH,
+                                                    '//a[contains(text(), "購入手続きへ進む")]'))
+                    )
+                except TimeoutException:
+                    result['error'] = "Không tìm thấy nút checkout"
+                    return result
+
+                # Kiểm tra xem nút có bị disable không (nếu disable, có thể là giỏ hàng trống)
+                button_href = checkout_button.get_attribute('href')
+                if button_href and 'alert' in button_href.lower():
+                    result['error'] = "Nút checkout bị disable, giỏ hàng có thể trống"
+                    return result
+
+                print(f"[purchase] Tìm thấy nút checkout, đang click...")
+                try:
+                    self.driver.execute_script("arguments[0].click();", checkout_button)
+                    time.sleep(3)
+                except:
+                    checkout_button.click()
+                    time.sleep(3)
+
+                print(f"[purchase] ✓ Đã click nút checkout")
+
+            except TimeoutException as e:
+                result['error'] = f"Không tìm thấy nút checkout: {str(e)}"
+                return result
+            except Exception as e:
+                result['error'] = f"Lỗi khi xử lý nút checkout: {str(e)}"
+                return result
+
+            # Đợi chuyển sang trang checkout (có thể là step02 hoặc trang khác)
+            print(f"[purchase] Đợi chuyển sang trang checkout...")
+            WebDriverWait(self.driver, 15).until(
+                lambda d: "checkout" in d.current_url or "order" in d.current_url
+            )
+            time.sleep(3)
+            self.close_popups()
+            time.sleep(0.5)
+
+            # Tìm và click nút xác nhận đơn hàng "注文を確定する"
+            print(f"[purchase] Tìm nút xác nhận đơn hàng...")
+            try:
+                confirm_button = WebDriverWait(self.driver, 15).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR,
+                                                'input[name="checkout"][type="button"], input.checkout-confirm[type="button"], '
+                                                'input[value*="注文を確定"], input[value*="確定"]'))
                 )
 
-                # Sử dụng JavaScript click để tránh bị intercept
+                print(f"[purchase] Tìm thấy nút xác nhận, đang click...")
                 try:
-                    self.driver.execute_script("arguments[0].click();", submit_button)
-                    time.sleep(2)
+                    self.driver.execute_script("arguments[0].click();", confirm_button)
+                    time.sleep(3)
                 except:
-                    submit_button.click()
-                    time.sleep(2)
+                    confirm_button.click()
+                    time.sleep(3)
 
-                # Submit lần thứ 2 nếu cần
-                try:
-                    submit_button2 = self.driver.find_element(By.CSS_SELECTOR,
-                                                              'input[onclick="javascript:order_submit()"]')
-                    try:
-                        self.driver.execute_script("arguments[0].click();", submit_button2)
-                        time.sleep(2)
-                    except:
-                        submit_button2.click()
-                        time.sleep(2)
-                except NoSuchElementException:
-                    pass
-
-                result['success'] = True
-
+                print(f"[purchase] ✓ Đã click nút xác nhận đơn hàng")
             except TimeoutException:
-                result['error'] = "Không thể submit đơn hàng"
+                result['error'] = "Không tìm thấy nút xác nhận đơn hàng"
                 return result
+
+            # Đợi một chút để trang load
+            time.sleep(3)
+
+            # Kiểm tra thông báo thành công "ご注文ありがとうございました"
+            print(f"[purchase] Kiểm tra kết quả đặt hàng...")
+            page_source = self.driver.page_source
+
+            if "ご注文ありがとうございました" in page_source:
+                print(f"[purchase] ✓✓✓ Đặt hàng THÀNH CÔNG!")
+                result['success'] = True
+            else:
+                result['error'] = "Không tìm thấy thông báo đặt hàng thành công"
+                print(f"[purchase] ✗ Đặt hàng thất bại")
 
         except Exception as e:
             result['error'] = f"Lỗi không xác định: {str(e)}"
+            print(f"[purchase] ✗ Lỗi: {str(e)}")
+            import traceback
+            print(f"[purchase] Traceback: {traceback.format_exc()}")
 
         return result
 
@@ -909,8 +1167,8 @@ class ERSportsAutomationGUI:
     """
     Class chính cho giao diện đồ họa của ER Sports Automation Tool
     Sử dụng tkinter để tạo GUI với các tính năng:
-    - Nhập danh sách tài khoản (10 accounts)
-    - Nhập danh sách sản phẩm (20 products)
+    - Nhập danh sách tài khoản (60 accounts)
+    - Nhập danh sách sản phẩm (60 products)
     - Hiển thị số liệu thống kê
     - Xem log chi tiết
     """
@@ -1009,7 +1267,7 @@ class ERSportsAutomationGUI:
         self.notebook.add(main_frame, text="Tài khoản & Sản phẩm")
 
         # Frame cho tài khoản
-        account_frame = ttk.LabelFrame(main_frame, text="Danh sách tài khoản (Tối đa 10)")
+        account_frame = ttk.LabelFrame(main_frame, text="Danh sách tài khoản (Tối đa 60)")
         account_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Treeview cho tài khoản (chỉ còn Email, Password)
@@ -1051,7 +1309,7 @@ class ERSportsAutomationGUI:
         ttk.Button(account_buttons_frame, text="Export JSON", command=self.export_accounts).pack(side=tk.LEFT, padx=2)
 
         # Frame cho sản phẩm
-        product_frame = ttk.LabelFrame(main_frame, text="Danh sách sản phẩm (Tối đa 20)")
+        product_frame = ttk.LabelFrame(main_frame, text="Danh sách sản phẩm (Tối đa 60)")
         product_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Treeview cho sản phẩm (chỉ còn ID)
@@ -1139,7 +1397,8 @@ class ERSportsAutomationGUI:
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
         ttk.Button(buttons_frame, text="Reset Thống kê", command=self.reset_stats).pack(side=tk.LEFT, padx=5)
-        ttk.Button(buttons_frame, text="Reset tài khoản đã mua hôm nay", command=self.reset_daily_purchases).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="Reset tài khoản đã mua hôm nay", command=self.reset_daily_purchases).pack(
+            side=tk.LEFT, padx=5)
         ttk.Button(buttons_frame, text="Xuất Báo cáo", command=self.export_report).pack(side=tk.LEFT, padx=5)
 
         # Frame trạng thái
@@ -1304,8 +1563,9 @@ class ERSportsAutomationGUI:
 
         ttk.Button(manual_save_frame, text="💾 Lưu cấu hình thủ công",
                    command=lambda: (
-                   self.save_settings(), self.log_message("Đã lưu cấu hình thủ công", "SUCCESS"))).pack(side=tk.LEFT,
-                                                                                                        padx=5)
+                       self.save_settings(), self.log_message("Đã lưu cấu hình thủ công", "SUCCESS"))).pack(
+            side=tk.LEFT,
+            padx=5)
 
         ttk.Button(manual_save_frame, text="🔄 Load lại cấu hình",
                    command=lambda: (self.load_settings(), self.log_message("Đã load lại cấu hình", "INFO"))).pack(
@@ -1315,8 +1575,8 @@ class ERSportsAutomationGUI:
         """
         Thêm tài khoản mới vào danh sách
         """
-        if len(self.account_tree.get_children()) >= 10:
-            messagebox.showwarning("Cảnh báo", "Chỉ được thêm tối đa 10 tài khoản!")
+        if len(self.account_tree.get_children()) >= 60:
+            messagebox.showwarning("Cảnh báo", "Chỉ được thêm tối đa 60 tài khoản!")
             return
 
         email = self.email_var.get().strip()
@@ -1379,8 +1639,8 @@ class ERSportsAutomationGUI:
         """
         Thêm sản phẩm mới vào danh sách
         """
-        if len(self.product_tree.get_children()) >= 20:
-            messagebox.showwarning("Cảnh báo", "Chỉ được thêm tối đa 20 sản phẩm!")
+        if len(self.product_tree.get_children()) >= 60:
+            messagebox.showwarning("Cảnh báo", "Chỉ được thêm tối đa 60 sản phẩm!")
             return
 
         product_id = self.product_id_var.get().strip()
@@ -1458,7 +1718,7 @@ class ERSportsAutomationGUI:
                 self.clear_accounts()
 
                 # Thêm tài khoản mới
-                for account in accounts[:10]:  # Giới hạn 10 tài khoản
+                for account in accounts[:60]:  # Giới hạn 60 tài khoản
                     if isinstance(account, dict) and 'email' in account and 'password' in account:
                         self.account_tree.insert('', tk.END, values=(
                             account.get('email', ''),
@@ -1527,7 +1787,7 @@ class ERSportsAutomationGUI:
                 self.clear_products()
 
                 # Thêm sản phẩm mới
-                for product in products[:20]:  # Giới hạn 20 sản phẩm
+                for product in products[:60]:  # Giới hạn 60 sản phẩm
                     if isinstance(product, dict) and 'productId' in product:
                         self.product_tree.insert('', tk.END, values=(
                             product.get('productId', '')
@@ -1786,7 +2046,8 @@ class ERSportsAutomationGUI:
                             current_account_index += 1
 
                             # Đổi VPN sang IP Nhật Bản khác (nếu bật) cho tài khoản kế tiếp
-                            if self.vpn_manager and self.vpn_manager.config_files and current_account_index < len(accounts):
+                            if self.vpn_manager and self.vpn_manager.config_files and current_account_index < len(
+                                    accounts):
                                 self.log_message("Đang đổi sang IP Nhật Bản mới...", "INFO")
                                 self.vpn_manager.disconnect()
                                 time.sleep(3)
@@ -2175,7 +2436,7 @@ class ERSportsAutomationGUI:
             # Load tài khoản
             if 'accounts' in settings:
                 for account in settings['accounts']:
-                    if len(self.account_tree.get_children()) < 10:
+                    if len(self.account_tree.get_children()) < 60:
                         self.account_tree.insert('', tk.END, values=(
                             account.get('email', ''),
                             account.get('password', '')
@@ -2184,7 +2445,7 @@ class ERSportsAutomationGUI:
             # Load sản phẩm
             if 'products' in settings:
                 for product in settings['products']:
-                    if len(self.product_tree.get_children()) < 20:
+                    if len(self.product_tree.get_children()) < 60:
                         self.product_tree.insert('', tk.END, values=(
                             product.get('productId', '')
                         ))

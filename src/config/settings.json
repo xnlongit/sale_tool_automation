@@ -1,0 +1,33 @@
+{
+  "accounts": [
+    {
+      "email": "camanh2304@gmail.com",
+      "password": "12345678a"
+    },
+    {
+      "email": "phuongton1993@gmail.com",
+      "password": "12345678a"
+    }
+  ],
+  "products": [
+    {
+      "productId": "MEZZ"
+    }
+  ],
+  "chrome_path": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "headless": false,
+  "account_delay": 5,
+  "product_delay": 3,
+  "auto_save": true,
+  "retry_failed": true,
+  "max_retries": 3,
+  "enable_openvpn": true,
+  "openvpn_path": "C:/Program Files/OpenVPN Connect/OpenVPNConnect.exe",
+  "openvpn_configs": [
+    "C:/Users/Duc Tran Admin/Downloads/vpngate_219.100.37.209_udp_1195.ovpn",
+    "C:/Users/Duc Tran Admin/Downloads/vpngate_public-vpn-192.opengw.net_udp_1195.ovpn"
+  ],
+  "openvpn_mode": "sequential",
+  "purchased_today": [],
+  "purchased_date": "2025-10-31"
+}
